@@ -86,9 +86,12 @@ func main() {
 func doTheThing() {
 	userId := getUserId()
 	fmt.Println(userId)
+
+	photos := getPhotos(userId)
+	fmt.Printf("%v\n", photos)
 }
 
-type userIdResponse struct {
+type getUserIdResponse struct {
 	User struct {
 		Id       string `xml:"id,attr"`
 		NsId     string `xml:"nsid,attr"`
@@ -100,13 +103,58 @@ type userIdResponse struct {
 
 func getUserId() string {
 	q := flickrQuery{"username": config.UserName}
-	resp := &userIdResponse{}
+	resp := &getUserIdResponse{}
 	err := q.Execute("flickr.people.findByUsername", resp)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	return resp.User.NsId
+}
+
+type getPhotosResponse struct {
+	Photos struct {
+		Page      int           `xml:"page,attr"`
+		Pages     int           `xml:"pages,attr"`
+		PerPage   int           `xml:"perpage,attr"`
+		Total     int           `xml:"total,attr"`
+		PhotoList []flickrPhoto `xml:"photo"`
+	} `xml:"photos"`
+}
+
+type flickrPhoto struct {
+	Id       string `xml:"id,attr"`
+	Owner    string `xml:"owner,attr"`
+	Secret   string `xml:"secret,attr"`
+	Server   string `xml:"server,attr"`
+	Farm     string `xml:"farm,attr"`
+	Title    string `xml:"title,attr"`
+	IsPublic int    `xml:"ispublic,attr"`
+	IsFriend int    `xml:"isfriend,attr"`
+	IsFamily int    `xml:"isfamily,attr"`
+}
+
+func getPhotos(userId string) []flickrPhoto {
+	page := 1
+	pages := 1
+	allPhotos := make([]flickrPhoto, 0)
+	for page <= pages {
+		q := flickrQuery{
+			"user_id":     userId,
+			"safe_search": "3",
+			"page":        fmt.Sprintf("%d", page),
+		}
+		resp := &getPhotosResponse{}
+		err := q.Execute("flickr.photos.search", resp)
+		if err != nil {
+			log.Fatal(err)
+		}
+		allPhotos = append(allPhotos, resp.Photos.PhotoList...)
+		pages = resp.Photos.Pages
+		page++
+	}
+
+	return allPhotos
 }
 
 type flickrQuery map[string]string
