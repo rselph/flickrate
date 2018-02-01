@@ -88,18 +88,50 @@ func doTheThing() {
 	fmt.Println(userId)
 }
 
+type userIdResponse struct {
+	User struct {
+		Id       string `xml:"id,attr"`
+		NsId     string `xml:"nsid,attr"`
+		UserName struct {
+			Value string `xml:",chardata"`
+		} `xml:"username"`
+	} `xml:"user"`
+}
+
 func getUserId() string {
+	q := flickrQuery{"username": config.UserName}
+	resp := &userIdResponse{}
+	err := q.Execute("flickr.people.findByUsername", resp)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return resp.User.NsId
+}
+
+type flickrQuery map[string]string
+type flickrError struct {
+	Stat string `xml:"stat,attr"`
+	Err  struct {
+		Code string `xml:"code,attr"`
+		Msg  string `xml:"msg,attr"`
+	} `xml:"err"`
+}
+
+func (fq *flickrQuery) Execute(method string, result interface{}) error {
 	addr, err := url.Parse(restEndpoint)
 	q := addr.Query()
-	q.Set("method", "flickr.people.findByUsername")
+	q.Set("method", method)
 	q.Set("api_key", config.ApiKey)
 	q.Set("format", "rest")
-	q.Set("username", config.UserName)
+	for k, v := range *fq {
+		q.Set(k, v)
+	}
 	addr.RawQuery = q.Encode()
 	fmt.Printf("%s\n", addr.String())
 	fmt.Println()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	httpReq := &http.Request{}
@@ -109,44 +141,25 @@ func getUserId() string {
 	client := &http.Client{}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		errString := fmt.Sprintf("%s\n\t--> %d: %s", addr.String(), resp.StatusCode, resp.Status)
-		log.Fatal(errString)
+		return fmt.Errorf("%s\n\t--> %d: %s", addr.String(), resp.StatusCode, resp.Status)
 	}
 
 	respBody, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
-	//respBody = respBody[40:]
 	fmt.Println(string(respBody))
 	fmt.Println()
 
-	idResp := &userIdResponse{}
-	err = xml.Unmarshal(respBody, &idResp)
+	fe := &flickrError{}
+	err = xml.Unmarshal(respBody, fe)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	if idResp.Stat != "ok" {
-		log.Fatal(idResp.Err.Msg)
+	if fe.Stat != "ok" {
+		return fmt.Errorf("%s: %s", fe.Stat, fe.Err.Msg)
 	}
 
-	fmt.Printf("%#v\n", *idResp)
-	fmt.Printf("%v\n", *idResp)
-	return idResp.User.NsId
-}
-
-type userIdResponse struct {
-	Stat string `xml:"stat,attr"`
-	Err  struct {
-		Code string `xml:"code,attr"`
-		Msg  string `xml:"msg,attr"`
-	} `xml:"err"`
-	User struct {
-		Id       string `xml:"id,attr"`
-		NsId     string `xml:"nsid,attr"`
-		UserName struct {
-			Value string `xml:",chardata"`
-		} `xml:"username"`
-	} `xml:"user"`
+	return xml.Unmarshal(respBody, result)
 }
