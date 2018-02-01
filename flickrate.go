@@ -88,34 +88,13 @@ func doTheThing() {
 	fmt.Println(userId)
 }
 
-type request struct {
-	ApiKey string `xml:"api_key"`
-	Format string `xml:"format"`
-}
-
-type userIdRequest struct {
-	request
-	UserName string `xml:"username"`
-}
-
 func getUserId() string {
-	req := &userIdRequest{
-		request:  request{config.ApiKey, "rest"},
-		UserName: config.UserName,
-	}
-	reqBytes, err := xml.Marshal(req)
-	if err != nil {
-		log.Fatal(err)
-	}
-	reqBytes = append([]byte(xml.Header), reqBytes...)
-	//reqReader := ioutil.NopCloser(bytes.NewReader(reqBytes))
-
 	addr, err := url.Parse(restEndpoint)
 	q := addr.Query()
 	q.Set("method", "flickr.people.findByUsername")
-	q.Set("api_key", req.ApiKey)
-	q.Set("format", req.Format)
-	q.Set("username", req.UserName)
+	q.Set("api_key", config.ApiKey)
+	q.Set("format", "rest")
+	q.Set("username", config.UserName)
 	addr.RawQuery = q.Encode()
 	fmt.Printf("%s\n", addr.String())
 	fmt.Println()
@@ -123,12 +102,9 @@ func getUserId() string {
 		log.Fatal(err)
 	}
 
-	//fmt.Println(string(reqBytes))
-	//fmt.Println()
 	httpReq := &http.Request{}
 	httpReq.Method = http.MethodGet
 	httpReq.URL = addr
-	//httpReq.Body = reqReader
 
 	client := &http.Client{}
 	resp, err := client.Do(httpReq)
@@ -142,7 +118,35 @@ func getUserId() string {
 
 	respBody, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
+	//respBody = respBody[40:]
 	fmt.Println(string(respBody))
 	fmt.Println()
-	return ""
+
+	idResp := &userIdResponse{}
+	err = xml.Unmarshal(respBody, &idResp)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if idResp.Stat != "ok" {
+		log.Fatal(idResp.Err.Msg)
+	}
+
+	fmt.Printf("%#v\n", *idResp)
+	fmt.Printf("%v\n", *idResp)
+	return idResp.User.NsId
+}
+
+type userIdResponse struct {
+	Stat string `xml:"stat,attr"`
+	Err  struct {
+		Code string `xml:"code,attr"`
+		Msg  string `xml:"msg,attr"`
+	} `xml:"err"`
+	User struct {
+		Id       string `xml:"id,attr"`
+		NsId     string `xml:"nsid,attr"`
+		UserName struct {
+			Value string `xml:",chardata"`
+		} `xml:"username"`
+	} `xml:"user"`
 }
