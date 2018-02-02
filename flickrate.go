@@ -168,6 +168,9 @@ type flickrError struct {
 
 func (fq *flickrQuery) Execute(method string, result interface{}) error {
 	addr, err := url.Parse(restEndpoint)
+	if err != nil {
+		return err
+	}
 	q := addr.Query()
 	q.Set("method", method)
 	q.Set("api_key", config.ApiKey)
@@ -178,16 +181,8 @@ func (fq *flickrQuery) Execute(method string, result interface{}) error {
 	addr.RawQuery = q.Encode()
 	fmt.Printf("%s\n", addr.String())
 	fmt.Println()
-	if err != nil {
-		return err
-	}
 
-	httpReq := &http.Request{}
-	httpReq.Method = http.MethodGet
-	httpReq.URL = addr
-
-	client := &http.Client{}
-	resp, err := client.Do(httpReq)
+	resp, err := http.Get(addr.String())
 	if err != nil {
 		return err
 	}
