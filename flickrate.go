@@ -89,6 +89,9 @@ func doTheThing() {
 
 	photos := getPhotos(userId)
 	fmt.Printf("%v\n", photos)
+
+	details := getDetails(photos)
+	fmt.Printf("%v\n", details)
 }
 
 type getUserIdResponse struct {
@@ -114,15 +117,15 @@ func getUserId() string {
 
 type getPhotosResponse struct {
 	Photos struct {
-		Page      int           `xml:"page,attr"`
-		Pages     int           `xml:"pages,attr"`
-		PerPage   int           `xml:"perpage,attr"`
-		Total     int           `xml:"total,attr"`
-		PhotoList []flickrPhoto `xml:"photo"`
+		Page      int        `xml:"page,attr"`
+		Pages     int        `xml:"pages,attr"`
+		PerPage   int        `xml:"perpage,attr"`
+		Total     int        `xml:"total,attr"`
+		PhotoList []photoPtr `xml:"photo"`
 	} `xml:"photos"`
 }
 
-type flickrPhoto struct {
+type photoPtr struct {
 	Id       string `xml:"id,attr"`
 	Owner    string `xml:"owner,attr"`
 	Secret   string `xml:"secret,attr"`
@@ -134,10 +137,10 @@ type flickrPhoto struct {
 	IsFamily int    `xml:"isfamily,attr"`
 }
 
-func getPhotos(userId string) []flickrPhoto {
+func getPhotos(userId string) []photoPtr {
 	page := 1
 	pages := 1
-	allPhotos := make([]flickrPhoto, 0)
+	allPhotos := make([]photoPtr, 0)
 	for page <= pages {
 		q := flickrQuery{
 			"user_id":     userId,
@@ -155,6 +158,42 @@ func getPhotos(userId string) []flickrPhoto {
 	}
 
 	return allPhotos
+}
+
+type photoInfo struct {
+	Id     string `xml:"id,attr"`
+	Secret string `xml:"secret,attr"`
+	Dates  struct {
+		Posted           int64  `xml:"posted,attr"`
+		Taken            string `xml:"taken,attr"`
+		Takengranularity int    `xml:"takengranularity,attr"`
+		LastUpdate       int64  `xml:"lastupdate,attr"`
+	} `xml:"dates"`
+	Urls struct {
+		Values []struct {
+			Type  string `xml:"type,attr"`
+			Value string `xml:",chardata"`
+		} `xml:"url"`
+	} `xml:"urls"`
+}
+
+type getInfoResponse struct {
+	Photo photoInfo `xml:"photo"`
+}
+
+func getDetails(photos []photoPtr) []*photoInfo {
+	infos := make([]*photoInfo, len(photos))
+	for i, photo := range photos {
+		q := flickrQuery{"photo_id": photo.Id}
+		info := &getInfoResponse{}
+		err := q.Execute("flickr.photos.getInfo", info)
+		if err != nil {
+			log.Fatal(err)
+		}
+		infos[i] = &info.Photo
+	}
+
+	return infos
 }
 
 type flickrQuery map[string]string
@@ -192,6 +231,9 @@ func (fq *flickrQuery) Execute(method string, result interface{}) error {
 
 	respBody, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
+	if err != nil {
+		return err
+	}
 	fmt.Println(string(respBody))
 	fmt.Println()
 
