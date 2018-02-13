@@ -19,16 +19,19 @@ const (
 )
 
 var (
-	username  string
+	authName  string
 	apikey    string
 	apisecret string
 
-	minDays  int
-	minViews int
+	targetName string
+	minDays    int
+	minViews   int
+
+	verbose bool
 )
 
 var config struct {
-	UserName  string
+	AuthUser  string
 	ApiKey    string
 	ApiSecret string
 }
@@ -39,11 +42,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	flag.StringVar(&username, "user", usr.Name, "flickr user name")
+	flag.StringVar(&authName, "user", usr.Name, "your flickr user name")
 	flag.StringVar(&apikey, "key", "", "flickr API key")
 	flag.StringVar(&apisecret, "secret", "", "flickr API secret")
 	flag.IntVar(&minDays, "days", 10, "minimum days")
 	flag.IntVar(&minViews, "views", 1000, "mimimum views")
+	flag.BoolVar(&verbose, "v", false, "verbose")
 	flag.Parse()
 
 	configPath := filepath.Join(usr.HomeDir, configFile)
@@ -56,9 +60,9 @@ func main() {
 	}
 
 	newConfig := false
-	if username != "" {
+	if authName != "" {
 		newConfig = true
-		config.UserName = username
+		config.AuthUser = authName
 	}
 	if apikey != "" {
 		newConfig = true
@@ -80,10 +84,23 @@ func main() {
 		}
 	}
 
+	targetName = flag.Arg(0)
+	if targetName == "" {
+		targetName = config.AuthUser
+	}
+
+	if targetName == "" {
+		log.Fatal("Must supply a user name to query.")
+	}
+
 	doTheThing()
 }
 
 func doTheThing() {
+	//oa := oauthRequest{}
+	//oa.Execute("request_token", nil)
+	//return
+
 	userId := getUserId()
 	fmt.Println(userId)
 
@@ -105,7 +122,7 @@ type getUserIdResponse struct {
 }
 
 func getUserId() string {
-	q := flickrQuery{"username": config.UserName}
+	q := flickrQuery{"username": targetName}
 	resp := &getUserIdResponse{}
 	err := q.Execute("flickr.people.findByUsername", resp)
 	if err != nil {
@@ -210,7 +227,7 @@ func (fq *flickrQuery) Execute(method string, result interface{}) error {
 	if err != nil {
 		return err
 	}
-	q := addr.Query()
+	q := url.Values{}
 	q.Set("method", method)
 	q.Set("api_key", config.ApiKey)
 	q.Set("format", "rest")
@@ -218,8 +235,11 @@ func (fq *flickrQuery) Execute(method string, result interface{}) error {
 		q.Set(k, v)
 	}
 	addr.RawQuery = q.Encode()
-	fmt.Printf("%s\n", addr.String())
-	fmt.Println()
+
+	if verbose {
+		fmt.Printf("%s\n", addr.String())
+		fmt.Println()
+	}
 
 	resp, err := http.Get(addr.String())
 	if err != nil {
@@ -234,8 +254,11 @@ func (fq *flickrQuery) Execute(method string, result interface{}) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(respBody))
-	fmt.Println()
+
+	if verbose {
+		fmt.Println(string(respBody))
+		fmt.Println()
+	}
 
 	fe := &flickrError{}
 	err = xml.Unmarshal(respBody, fe)
