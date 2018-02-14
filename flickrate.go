@@ -34,15 +34,13 @@ var config struct {
 	AuthUser  string
 	ApiKey    string
 	ApiSecret string
+
+	AuthToken         string
+	AuthTokenVerifier string
 }
 
 func main() {
-	usr, err := user.Current()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	flag.StringVar(&authName, "user", usr.Name, "your flickr user name")
+	flag.StringVar(&authName, "user", "", "your flickr user name")
 	flag.StringVar(&apikey, "key", "", "flickr API key")
 	flag.StringVar(&apisecret, "secret", "", "flickr API secret")
 	flag.IntVar(&minDays, "days", 10, "minimum days")
@@ -50,8 +48,7 @@ func main() {
 	flag.BoolVar(&verbose, "v", false, "verbose")
 	flag.Parse()
 
-	configPath := filepath.Join(usr.HomeDir, configFile)
-	configBytes, err := ioutil.ReadFile(configPath)
+	configBytes, err := ioutil.ReadFile(configPath())
 	if err == nil {
 		err = json.Unmarshal(configBytes, &config)
 		if err != nil {
@@ -61,8 +58,12 @@ func main() {
 
 	newConfig := false
 	if authName != "" {
-		newConfig = true
-		config.AuthUser = authName
+		if authName != config.AuthUser {
+			newConfig = true
+			config.AuthUser = authName
+			config.AuthToken = ""
+			config.AuthTokenVerifier = ""
+		}
 	}
 	if apikey != "" {
 		newConfig = true
@@ -74,14 +75,13 @@ func main() {
 	}
 
 	if newConfig {
-		configBytes, err = json.MarshalIndent(config, "", "    ")
-		if err != nil {
-			log.Fatal(err)
+		if config.AuthUser != "" && config.AuthToken == "" {
+			err = authorizeUser()
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
-		ioutil.WriteFile(configPath, configBytes, 0600)
-		if err != nil {
-			log.Fatal(err)
-		}
+		writeConfig()
 	}
 
 	targetName = flag.Arg(0)
@@ -96,11 +96,28 @@ func main() {
 	doTheThing()
 }
 
-func doTheThing() {
-	//oa := oauthRequest{}
-	//oa.Execute("request_token", nil)
-	//return
+func configPath() string {
+	usr, err := user.Current()
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	return filepath.Join(usr.HomeDir, configFile)
+}
+
+func writeConfig() {
+
+	configBytes, err := json.MarshalIndent(config, "", "    ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	ioutil.WriteFile(configPath(), configBytes, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func doTheThing() {
 	userId := getUserId()
 	fmt.Println(userId)
 
