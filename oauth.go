@@ -21,39 +21,44 @@ const (
 )
 
 var (
-	srv            *http.Server
-	oauth_verifier = make(chan string)
+	srv                  *http.Server
+	oauthVerifierChannel = make(chan string)
+
+	oauthTokenStage1       string
+	oauthTokenSecretStage1 string
+	oauthVerifier          string
 )
 
 type oauthRequest map[string]string
 
 func authorizeUser() error {
-	_, err := getToken()
+	err := getToken()
 	if err != nil {
 		return err
 	}
 
 	err = getUserAuth()
+	if err != nil {
+		return err
+	}
+
+	err = getAccessTokenSecret()
 	return err
 }
 
-func getToken() (secret string, err error) {
+func getToken() (err error) {
 	q := &oauthRequest{"oauth_callback": oauthCallbackListenURL()}
 	result, err := q.Execute("request_token", "")
 	if err != nil {
 		return
 	}
 
-	config.AuthToken = result.Get("oauth_token")
-	secret = result.Get("oauth_token_secret")
+	oauthTokenStage1 = result.Get("oauth_token")
+	oauthTokenSecretStage1 = result.Get("oauth_token_secret")
 
 	if result.Get("oauth_callback_confirmed") != "true" {
 		err = fmt.Errorf("oauth_callback_confirmed was not true: %s", result.Get("oauth_callback_confirmed"))
 		return
-	}
-
-	if verbose {
-		fmt.Printf("token: %s\ntoken secret: %s\n", config.AuthToken, secret)
 	}
 
 	return
@@ -66,7 +71,7 @@ func getUserAuth() error {
 	}
 
 	q := &url.Values{}
-	q.Set("oauth_token", config.AuthToken)
+	q.Set("oauth_token", oauthTokenStage1)
 	q.Set("perms", "read")
 	addr.RawQuery = q.Encode()
 
@@ -75,12 +80,34 @@ func getUserAuth() error {
 		log.Fatal(err)
 	}
 
-	config.AuthTokenVerifier = <-oauth_verifier
-	if config.AuthTokenVerifier == "" {
-		err = fmt.Errorf("Incomplete oauth authentication")
+	oauthVerifier = <-oauthVerifierChannel
+	if oauthVerifier == "" {
+		err = fmt.Errorf("incomplete oauth authentication")
 	}
 
 	return err
+}
+
+func getAccessTokenSecret() (err error) {
+	q := &oauthRequest{
+		"oauth_verifier": oauthVerifier,
+		"oauth_token":    oauthTokenStage1,
+	}
+
+	result, err := q.Execute("access_token", oauthTokenSecretStage1)
+	if err != nil {
+		return
+	}
+
+	config.OauthToken = result.Get("oauth_token")
+	config.OauthTokenSecret = result.Get("oauth_token_secret")
+	config.AuthUserNsId = result.Get("user_nsid")
+
+	if verbose {
+		fmt.Printf("token: %s\ntoken secret: %s\n", config.OauthToken, config.OauthTokenSecret)
+	}
+
+	return
 }
 
 func (oa *oauthRequest) Execute(method string, k string) (url.Values, error) {
@@ -90,18 +117,11 @@ func (oa *oauthRequest) Execute(method string, k string) (url.Values, error) {
 	}
 
 	q := &url.Values{}
-	q.Set("oauth_nonce", fmt.Sprintf("%d", rand.Int63()))
-	q.Set("oauth_timestamp", fmt.Sprintf("%d", time.Now().Unix()))
-	q.Set("oauth_consumer_key", config.ApiKey)
-	q.Set("oauth_signature_method", "HMAC-SHA1")
-	q.Set("oauth_version", "1.0")
-
 	for k, v := range *oa {
 		q.Set(k, v)
 	}
 
-	q.Set("oauth_signature", authSign(addr, q, k))
-	addr.RawQuery = q.Encode()
+	authSign(addr, q, k)
 
 	if verbose {
 		fmt.Println(addr.String())
@@ -134,7 +154,17 @@ func (oa *oauthRequest) Execute(method string, k string) (url.Values, error) {
 	return result, err
 }
 
-func authSign(addr *url.URL, q *url.Values, k string) string {
+func authSign(addr *url.URL, q *url.Values, k string) {
+	addr.RawQuery = ""
+	q.Set("oauth_nonce", fmt.Sprintf("%d", rand.Int63()))
+	q.Set("oauth_timestamp", fmt.Sprintf("%d", time.Now().Unix()))
+	q.Set("oauth_consumer_key", config.ApiKey)
+	q.Set("oauth_signature_method", "HMAC-SHA1")
+	q.Set("oauth_version", "1.0")
+	if config.OauthToken != "" {
+		q.Set("oauth_token", config.OauthToken)
+	}
+
 	baseString := "GET&"
 	baseString += url.QueryEscape(addr.String())
 	baseString += "&"
@@ -146,7 +176,8 @@ func authSign(addr *url.URL, q *url.Values, k string) string {
 	h := hmac.New(sha1.New, []byte(config.ApiSecret+"&"+k))
 	h.Write([]byte(baseString))
 	binSig := h.Sum(nil)
-	return base64.StdEncoding.EncodeToString(binSig)
+	q.Set("oauth_signature", base64.StdEncoding.EncodeToString(binSig))
+	addr.RawQuery = q.Encode()
 }
 
 type oauthResponseHandler struct{}
@@ -160,7 +191,7 @@ func (oah *oauthResponseHandler) ServeHTTP(resp http.ResponseWriter, req *http.R
 	resp.Write([]byte("OK"))
 
 	q := req.URL.Query()
-	oauth_verifier <- q.Get("oauth_verifier")
+	oauthVerifierChannel <- q.Get("oauth_verifier")
 }
 
 func oauthCallbackListenURL() string {

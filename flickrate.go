@@ -32,12 +32,14 @@ var (
 )
 
 var config struct {
-	AuthUser  string
+	AuthUser     string
+	AuthUserNsId string
+
 	ApiKey    string
 	ApiSecret string
 
-	AuthToken         string
-	AuthTokenVerifier string
+	OauthToken       string
+	OauthTokenSecret string
 }
 
 func main() {
@@ -59,8 +61,8 @@ func main() {
 	}
 
 	if refresh {
-		config.AuthToken = ""
-		config.AuthTokenVerifier = ""
+		config.OauthToken = ""
+		config.OauthTokenSecret = ""
 	}
 
 	newConfig := false
@@ -68,8 +70,8 @@ func main() {
 		if authName != config.AuthUser {
 			newConfig = true
 			config.AuthUser = authName
-			config.AuthToken = ""
-			config.AuthTokenVerifier = ""
+			config.OauthToken = ""
+			config.OauthTokenSecret = ""
 		}
 	}
 	if apikey != "" {
@@ -81,7 +83,7 @@ func main() {
 		config.ApiSecret = apisecret
 	}
 
-	if config.AuthUser != "" && config.AuthToken == "" {
+	if config.AuthUser != "" && config.OauthTokenSecret == "" {
 		err = authorizeUser()
 		if err != nil {
 			log.Fatal(err)
@@ -91,6 +93,13 @@ func main() {
 
 	if newConfig {
 		writeConfig()
+	}
+
+	if config.OauthTokenSecret != "" {
+		err = testUser()
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	targetName = flag.Arg(0)
@@ -128,13 +137,26 @@ func writeConfig() {
 
 func doTheThing() {
 	userId := getUserId()
-	fmt.Println(userId)
 
 	photos := getPhotos(userId)
-	fmt.Printf("%v\n", photos)
 
-	details := getDetails(photos)
-	fmt.Printf("%v\n", details)
+	getDetails(photos)
+}
+
+type testUserResponse struct {
+	User struct {
+		Id       string `xml:"id,attr"`
+		UserName struct {
+			Value string `xml:",chardata"`
+		} `xml:"username"`
+	} `xml:"user"`
+}
+
+func testUser() (err error) {
+	q := &flickrQuery{}
+	resp := &testUserResponse{}
+	err = q.Execute("flickr.test.login", resp)
+	return
 }
 
 type getUserIdResponse struct {
@@ -148,6 +170,10 @@ type getUserIdResponse struct {
 }
 
 func getUserId() string {
+	if targetName == config.AuthUser && config.AuthUserNsId != "" {
+		return config.AuthUserNsId
+	}
+
 	q := flickrQuery{"username": targetName}
 	resp := &getUserIdResponse{}
 	err := q.Execute("flickr.people.findByUsername", resp)
@@ -200,6 +226,7 @@ func getPhotos(userId string) []photoPtr {
 		page++
 	}
 
+	fmt.Printf("Found %d photos.\n", len(allPhotos))
 	return allPhotos
 }
 
@@ -251,16 +278,21 @@ type flickrError struct {
 func (fq *flickrQuery) Execute(method string, result interface{}) error {
 	addr, err := url.Parse(restEndpoint)
 	if err != nil {
-		return err
+		log.Fatal(err)
 	}
-	q := url.Values{}
+	q := &url.Values{}
 	q.Set("method", method)
 	q.Set("api_key", config.ApiKey)
 	q.Set("format", "rest")
 	for k, v := range *fq {
 		q.Set(k, v)
 	}
-	addr.RawQuery = q.Encode()
+	if config.OauthTokenSecret != "" {
+		// TODO: This signature isn't working
+		authSign(addr, q, config.OauthTokenSecret)
+	} else {
+		addr.RawQuery = q.Encode()
+	}
 
 	if verbose {
 		fmt.Printf("%s\n", addr.String())
@@ -270,9 +302,6 @@ func (fq *flickrQuery) Execute(method string, result interface{}) error {
 	resp, err := http.Get(addr.String())
 	if err != nil {
 		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s\n\t--> %d: %s", addr.String(), resp.StatusCode, resp.Status)
 	}
 
 	respBody, err := ioutil.ReadAll(resp.Body)
@@ -284,6 +313,10 @@ func (fq *flickrQuery) Execute(method string, result interface{}) error {
 	if verbose {
 		fmt.Println(string(respBody))
 		fmt.Println()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s\n\t--> %d: %s", addr.String(), resp.StatusCode, resp.Status)
 	}
 
 	fe := &flickrError{}
