@@ -28,6 +28,7 @@ var (
 	minViews   int
 
 	verbose bool
+	refresh bool
 )
 
 var config struct {
@@ -46,6 +47,7 @@ func main() {
 	flag.IntVar(&minDays, "days", 10, "minimum days")
 	flag.IntVar(&minViews, "views", 1000, "mimimum views")
 	flag.BoolVar(&verbose, "v", false, "verbose")
+	flag.BoolVar(&refresh, "refresh", false, "refresh login credentials")
 	flag.Parse()
 
 	configBytes, err := ioutil.ReadFile(configPath())
@@ -54,6 +56,11 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+	}
+
+	if refresh {
+		config.AuthToken = ""
+		config.AuthTokenVerifier = ""
 	}
 
 	newConfig := false
@@ -74,13 +81,15 @@ func main() {
 		config.ApiSecret = apisecret
 	}
 
-	if newConfig {
-		if config.AuthUser != "" && config.AuthToken == "" {
-			err = authorizeUser()
-			if err != nil {
-				log.Fatal(err)
-			}
+	if config.AuthUser != "" && config.AuthToken == "" {
+		err = authorizeUser()
+		if err != nil {
+			log.Fatal(err)
 		}
+		newConfig = true
+	}
+
+	if newConfig {
 		writeConfig()
 	}
 
