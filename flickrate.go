@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"os/user"
 	"path/filepath"
 	"sort"
@@ -17,6 +18,7 @@ import (
 
 const (
 	configFile    = ".flickrate"
+	cacheFile     = ".flickrate_cache"
 	restEndpoint  = "https://api.flickr.com/services/rest/"
 	secondsPerDay = 60 * 60 * 24
 )
@@ -32,8 +34,14 @@ var (
 	minViews   int64
 	show       int
 
-	verbose bool
-	refresh bool
+	verbose      bool
+	refresh      bool
+	noCache      bool
+	cache        photoCache
+	cacheTouched bool
+
+	configPath string
+	cachePath  string
 )
 
 var config struct {
@@ -57,9 +65,18 @@ func main() {
 	flag.IntVar(&show, "top", 10, "show top n photos")
 	flag.BoolVar(&verbose, "v", false, "verbose")
 	flag.BoolVar(&refresh, "refresh", false, "refresh login credentials")
+	flag.BoolVar(&noCache, "nocache", false, "fetch new data, even if cache file is recent")
 	flag.Parse()
 
-	configBytes, err := ioutil.ReadFile(configPath())
+	usr, err := user.Current()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	configPath = filepath.Join(usr.HomeDir, configFile)
+	cachePath = filepath.Join(usr.HomeDir, cacheFile)
+
+	configBytes, err := ioutil.ReadFile(configPath)
 	if err == nil {
 		err = json.Unmarshal(configBytes, &config)
 		if err != nil {
@@ -121,22 +138,12 @@ func main() {
 	doTheThing()
 }
 
-func configPath() string {
-	usr, err := user.Current()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return filepath.Join(usr.HomeDir, configFile)
-}
-
 func writeConfig() {
-
 	configBytes, err := json.MarshalIndent(config, "", "    ")
 	if err != nil {
 		log.Fatal(err)
 	}
-	ioutil.WriteFile(configPath(), configBytes, 0600)
+	ioutil.WriteFile(configPath, configBytes, 0600)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -147,7 +154,12 @@ func doTheThing() {
 
 	photos := getPhotos(userId)
 
+	loadCache()
 	allPhotos := getDetails(photos)
+	err := saveCache()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	somePhotos := filterPhotos(allPhotos)
 
@@ -243,24 +255,62 @@ func getPhotos(userId string) []photoPtr {
 	return allPhotos
 }
 
+type photoCache map[string]*photoInfo
+
+func loadCache() {
+	cache = photoCache{}
+	if noCache {
+		return
+	}
+
+	info, err := os.Stat(cachePath)
+	if err != nil || info.ModTime().Before(time.Now().Add(-time.Hour)) {
+		return
+	}
+
+	cacheBytes, err := ioutil.ReadFile(cachePath)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	err = json.Unmarshal(cacheBytes, &cache)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+}
+
+func saveCache() error {
+	if !cacheTouched {
+		return nil
+	}
+
+	cacheBytes, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return ioutil.WriteFile(cachePath, cacheBytes, 0600)
+}
+
 type photoInfo struct {
-	Id     string `xml:"id,attr"`
-	Secret string `xml:"secret,attr"`
-	Views  int64  `xml:"views,attr"`
-	rate   float64
+	Id     string  `xml:"id,attr",json:"id"`
+	Secret string  `xml:"secret,attr",json:"secret"`
+	Views  int64   `xml:"views,attr",json:"views"`
+	Rate   float64 `json:"rate"`
 	age    int64
 	Dates  struct {
-		Posted           int64  `xml:"posted,attr"`
-		Taken            string `xml:"taken,attr"`
-		Takengranularity int    `xml:"takengranularity,attr"`
-		LastUpdate       int64  `xml:"lastupdate,attr"`
-	} `xml:"dates"`
+		Posted           int64  `xml:"posted,attr",json:"posted"`
+		Taken            string `xml:"taken,attr",json:"taken"`
+		Takengranularity int    `xml:"takengranularity,attr",json:"takengranularity"`
+		LastUpdate       int64  `xml:"lastupdate,attr",json:"lastupdate"`
+	} `xml:"dates",json:"dates"`
 	Urls struct {
 		Values []struct {
-			Type  string `xml:"type,attr"`
-			Value string `xml:",chardata"`
-		} `xml:"url"`
-	} `xml:"urls"`
+			Type  string `xml:"type,attr",json:"type"`
+			Value string `xml:",chardata",json:"value"`
+		} `xml:"url",json:"url"`
+	} `xml:"urls",json:"urls"`
 }
 
 type getInfoResponse struct {
@@ -271,6 +321,13 @@ func getDetails(photos []photoPtr) []*photoInfo {
 	now := time.Now().Unix()
 	infos := make([]*photoInfo, len(photos))
 	for i, photo := range photos {
+		var ok bool
+		infos[i], ok = cache[photo.Id]
+		if ok {
+			infos[i].age = now - infos[i].Dates.Posted
+			continue
+		}
+
 		q := flickrQuery{"photo_id": photo.Id}
 		info := &getInfoResponse{}
 		err := q.Execute("flickr.photos.getInfo", info)
@@ -279,9 +336,11 @@ func getDetails(photos []photoPtr) []*photoInfo {
 		}
 		if info.Photo.Views != 0 {
 			info.Photo.age = now - info.Photo.Dates.Posted
-			info.Photo.rate = float64(info.Photo.Views) / float64(info.Photo.age)
+			info.Photo.Rate = float64(info.Photo.Views) / float64(info.Photo.age)
 		}
 		infos[i] = &info.Photo
+		cache[photo.Id] = &info.Photo
+		cacheTouched = true
 		if i != 0 && i%80 == 0 {
 			fmt.Println()
 		}
@@ -311,7 +370,7 @@ func (a photoList) Swap(i, j int) {
 	a[i], a[j] = a[j], a[i]
 }
 func (a photoList) Less(i, j int) bool {
-	return a[i].rate > a[j].rate
+	return a[i].Rate > a[j].Rate
 }
 
 func sortPhotos(photos []*photoInfo) {
@@ -321,10 +380,10 @@ func sortPhotos(photos []*photoInfo) {
 func printPhotos(photos []*photoInfo) {
 	for i := 0; i < show && i < len(photos); i++ {
 		p := *photos[i]
-		fmt.Printf("%s\t% 5d\t%.3e\t%s\n",
+		fmt.Printf("%s\t% 5d\t%8.3f\t%s\n",
 			time.Unix(p.Dates.Posted, 0).String(),
 			p.Views,
-			p.rate*secondsPerDay,
+			p.Rate*secondsPerDay,
 			p.Urls.Values[0].Value)
 	}
 }

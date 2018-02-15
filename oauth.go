@@ -188,7 +188,7 @@ func (oah *oauthResponseHandler) ServeHTTP(resp http.ResponseWriter, req *http.R
 	}
 	req.Body.Close()
 	go srv.Shutdown(context.Background())
-	resp.Write([]byte("OK"))
+	resp.Write([]byte("You can now close this browser window and return to flickrate."))
 
 	q := req.URL.Query()
 	oauthVerifierChannel <- q.Get("oauth_verifier")
