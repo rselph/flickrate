@@ -33,6 +33,7 @@ var (
 	maxDays    int64
 	minViews   int64
 	show       int
+	openUrl    bool
 
 	verbose      bool
 	refresh      bool
@@ -59,13 +60,14 @@ func main() {
 	flag.StringVar(&authName, "user", "", "your flickr user name")
 	flag.StringVar(&apikey, "key", "", "flickr API key")
 	flag.StringVar(&apisecret, "secret", "", "flickr API secret")
-	flag.Int64Var(&minDays, "mindays", 90, "minimum age in days")
+	flag.Int64Var(&minDays, "mindays", 60, "minimum age in days")
 	flag.Int64Var(&maxDays, "maxdays", 3650, "maximum age in days")
 	flag.Int64Var(&minViews, "minviews", 1000, "mimimum views")
 	flag.IntVar(&show, "top", 10, "show top n photos")
 	flag.BoolVar(&verbose, "v", false, "verbose")
 	flag.BoolVar(&refresh, "refresh", false, "refresh login credentials")
 	flag.BoolVar(&noCache, "nocache", false, "fetch new data, even if cache file is recent")
+	flag.BoolVar(&openUrl, "o", false, "Open photo URLs in the browser")
 	flag.Parse()
 
 	usr, err := user.Current()
@@ -385,6 +387,9 @@ func printPhotos(photos []*photoInfo) {
 			p.Views,
 			p.Rate*secondsPerDay,
 			p.Urls.Values[0].Value)
+		if openUrl {
+			openInBrowser(p.Urls.Values[0].Value)
+		}
 	}
 }
 
