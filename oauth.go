@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os/exec"
 	"time"
 )
 
@@ -205,13 +204,4 @@ func oauthCallbackListenURL() string {
 	go srv.Serve(listen)
 
 	return fmt.Sprintf("http://%s/oauth", listen.Addr().String())
-}
-
-func openInBrowser(url string) (err error) {
-	cmd := exec.Command("cmd.exe", "/C", "start", url)
-	if verbose {
-		fmt.Println(cmd.Args)
-	}
-	cmd.Run()
-	return
 }
