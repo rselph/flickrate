@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"encoding/xml"
 	"flag"
@@ -276,7 +277,21 @@ func loadCache() {
 		return
 	}
 
-	cacheBytes, err := ioutil.ReadFile(cachePath)
+	fileReader, err := os.Open(cachePath)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	defer fileReader.Close()
+
+	gzReader, err := gzip.NewReader(fileReader)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	defer gzReader.Close()
+
+	cacheBytes, err := ioutil.ReadAll(gzReader)
 	if err != nil {
 		log.Print(err)
 		return
@@ -298,7 +313,21 @@ func saveCache() error {
 		log.Fatal(err)
 	}
 
-	return ioutil.WriteFile(cachePath, cacheBytes, 0600)
+	fileWriter, err := os.Create(cachePath)
+	if err != nil {
+		return err
+	}
+	defer fileWriter.Close()
+
+	gzWriter, err := gzip.NewWriterLevel(fileWriter, gzip.BestCompression)
+	if err != nil {
+		return err
+	}
+	defer gzWriter.Close()
+
+	_, err = gzWriter.Write(cacheBytes)
+
+	return err
 }
 
 type photoInfo struct {
