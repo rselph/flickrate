@@ -13,6 +13,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -34,12 +35,14 @@ var (
 	minViews   int64
 	show       int
 	openUrl    bool
+	workers    int
 
 	verbose      bool
 	refresh      bool
 	noCache      bool
 	cache        photoCache
 	cacheTouched bool
+	now          int64
 
 	configPath string
 	cachePath  string
@@ -68,7 +71,10 @@ func main() {
 	flag.BoolVar(&refresh, "refresh", false, "refresh login credentials")
 	flag.BoolVar(&noCache, "nocache", false, "fetch new data, even if cache file is recent")
 	flag.BoolVar(&openUrl, "o", false, "Open photo URLs in the browser")
+	flag.IntVar(&workers, "w", 20, "number of queries to make at a time")
 	flag.Parse()
+
+	now = time.Now().Unix()
 
 	usr, err := user.Current()
 	if err != nil {
@@ -296,12 +302,11 @@ func saveCache() error {
 }
 
 type photoInfo struct {
-	Id     string  `xml:"id,attr",json:"id"`
-	Secret string  `xml:"secret,attr",json:"secret"`
-	Views  int64   `xml:"views,attr",json:"views"`
-	Rate   float64 `json:"rate"`
-	age    int64
-	Dates  struct {
+	Id        string `xml:"id,attr",json:"id"`
+	Secret    string `xml:"secret,attr",json:"secret"`
+	Views     int64  `xml:"views,attr",json:"views"`
+	fromCache bool
+	Dates     struct {
 		Posted           int64  `xml:"posted,attr",json:"posted"`
 		Taken            string `xml:"taken,attr",json:"taken"`
 		Takengranularity int    `xml:"takengranularity,attr",json:"takengranularity"`
@@ -315,48 +320,90 @@ type photoInfo struct {
 	} `xml:"urls",json:"urls"`
 }
 
+func (info *photoInfo) age() int64 {
+	return now - info.Dates.Posted
+}
+
+func (info *photoInfo) rate() float64 {
+	age := info.age()
+	if age != 0 {
+		return float64(info.Views) / float64(age)
+	}
+	return 0.0
+}
+
 type getInfoResponse struct {
 	Photo photoInfo `xml:"photo"`
 }
 
 func getDetails(photos []photoPtr) []*photoInfo {
-	now := time.Now().Unix()
-	infos := make([]*photoInfo, len(photos))
-	for i, photo := range photos {
-		var ok bool
-		infos[i], ok = cache[photo.Id]
-		if ok {
-			infos[i].age = now - infos[i].Dates.Posted
-			continue
-		}
+	infos := make([]*photoInfo, 0, len(photos))
+	jobs := make(chan string)
+	results := make(chan *photoInfo)
 
-		q := flickrQuery{"photo_id": photo.Id}
-		info := &getInfoResponse{}
-		err := q.Execute("flickr.photos.getInfo", info)
-		if err != nil {
-			log.Fatal(err)
-		}
-		if info.Photo.Views != 0 {
-			info.Photo.age = now - info.Photo.Dates.Posted
-			info.Photo.Rate = float64(info.Photo.Views) / float64(info.Photo.age)
-		}
-		infos[i] = &info.Photo
-		cache[photo.Id] = &info.Photo
-		cacheTouched = true
-		if i != 0 && i%80 == 0 {
-			fmt.Println()
-		}
-		fmt.Print(".")
+	jobWg := sync.WaitGroup{}
+	for i := 0; i < workers; i++ {
+		go func() {
+			for job := range jobs {
+				q := flickrQuery{"photo_id": job}
+				info := &getInfoResponse{}
+				err := q.Execute("flickr.photos.getInfo", info)
+				if err != nil {
+					log.Fatal(err)
+				}
+				results <- &info.Photo
+				jobWg.Done()
+			}
+		}()
 	}
 
-	fmt.Println()
+	resultWg := sync.WaitGroup{}
+	resultWg.Add(1)
+	go func() {
+		defer resultWg.Done()
+		i := 0
+		for info := range results {
+			infos = append(infos, info)
+			if i != 0 && i%80 == 0 {
+				fmt.Println()
+			}
+			fmt.Print(".")
+			i++
+		}
+		fmt.Println()
+	}()
+
+	for _, photo := range photos {
+		tmp, ok := cache[photo.Id]
+		if ok {
+			tmp.fromCache = true
+			results <- tmp
+		} else {
+			jobWg.Add(1)
+			jobs <- photo.Id
+		}
+	}
+
+	close(jobs)
+	jobWg.Wait()
+
+	close(results)
+	resultWg.Wait()
+
+	for _, info := range infos {
+		if !info.fromCache {
+			cache[info.Id] = info
+			cacheTouched = true
+		}
+	}
+
 	return infos
 }
 
 func filterPhotos(photos []*photoInfo) []*photoInfo {
 	filtered := make([]*photoInfo, 0, len(photos))
 	for _, p := range photos {
-		if p.age/secondsPerDay >= minDays && p.age/secondsPerDay <= maxDays && p.Views >= minViews {
+		if p.age()/secondsPerDay >= minDays && p.age()/secondsPerDay <= maxDays && p.Views >= minViews {
 			filtered = append(filtered, p)
 		}
 	}
@@ -372,7 +419,7 @@ func (a photoList) Swap(i, j int) {
 	a[i], a[j] = a[j], a[i]
 }
 func (a photoList) Less(i, j int) bool {
-	return a[i].Rate > a[j].Rate
+	return a[i].rate() > a[j].rate()
 }
 
 func sortPhotos(photos []*photoInfo) {
@@ -385,7 +432,7 @@ func printPhotos(photos []*photoInfo) {
 		fmt.Printf("%s\t% 5d\t%8.3f\t%s\n",
 			time.Unix(p.Dates.Posted, 0).String(),
 			p.Views,
-			p.Rate*secondsPerDay,
+			p.rate()*secondsPerDay,
 			p.Urls.Values[0].Value)
 		if openUrl {
 			openInBrowser(p.Urls.Values[0].Value)
