@@ -6,7 +6,7 @@ import (
 )
 
 func openInBrowser(url string) (err error) {
-	cmd := exec.Command("chromium-browser", url)
+	cmd := exec.Command("gnome-open", url)
 	if verbose {
 		fmt.Println(cmd.Args)
 	}
