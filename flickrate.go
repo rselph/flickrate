@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -65,7 +66,7 @@ func main() {
 	flag.StringVar(&apikey, "key", "", "flickr API key")
 	flag.StringVar(&apisecret, "secret", "", "flickr API secret")
 	flag.Int64Var(&minDays, "mindays", 60, "minimum age in days")
-	flag.Int64Var(&maxDays, "maxdays", 3650, "maximum age in days")
+	flag.Int64Var(&maxDays, "maxdays", math.MaxInt64, "maximum age in days")
 	flag.Int64Var(&minViews, "minviews", 1000, "mimimum views")
 	flag.IntVar(&show, "top", 10, "show top n photos")
 	flag.BoolVar(&verbose, "v", false, "verbose")
