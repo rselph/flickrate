@@ -49,4 +49,4 @@ and Mac, and maybe Linux. (My test environment for Linux is not useful for
 this.  In theory the code works in a gnome environment.  Please let me know!)
 Things that require a browser are the `-o` flag and the `-user` flag.
 If you aren't using either of those,
-flickrate should run proplerly on any platform that supports go.
+flickrate should run properly on any platform that supports go.
