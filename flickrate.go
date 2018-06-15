@@ -440,20 +440,10 @@ func filterPhotos(photos []*photoInfo) []*photoInfo {
 	return filtered
 }
 
-type photoList []*photoInfo
-
-func (a photoList) Len() int {
-	return len(a)
-}
-func (a photoList) Swap(i, j int) {
-	a[i], a[j] = a[j], a[i]
-}
-func (a photoList) Less(i, j int) bool {
-	return a[i].rate() > a[j].rate()
-}
-
 func sortPhotos(photos []*photoInfo) {
-	sort.Stable(photoList(photos))
+	sort.SliceStable(photos, func(i, j int) bool {
+		return photos[i].rate() > photos[j].rate()
+	})
 }
 
 func printPhotos(photos []*photoInfo) {
