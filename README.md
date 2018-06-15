@@ -6,7 +6,8 @@ views.  But after a while, this list rarely changes, because older photos keep a
 views and newer ones can never catch up.  I was interested in which of my more recent
 photos were doing well, so I wrote flickrate.  This program will show you which of your
 photos are getting more views per day, averaged over the time since they were
-posted. This should allow recent photos a chance, but still allow the all-time
+posted, mixed in with the ones with the all time highest views.
+This should allow recent photos a chance, but still allow the all-time
 blockusters to show up.
 
 flickrate is a command line application.  If you're not comfortable with the
@@ -33,7 +34,7 @@ options are.  The most useful ones are:
 * `-mindays` sets the minimum age for photos to be considered.  Very
 recently posted photos will have a much higher average view rate, so they will
 distort the results.  By default flickrate will only consider photos at
-least 60 days old.  Use this parameter to change that.
+least 60 days old.
 * `-maxdays` sets the maximum age for photos to be considered.  If you're
 only interested in photos posted within the last year, for instance, you
 could provide the value 365.  By default, flickrate does not impose a

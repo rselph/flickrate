@@ -173,7 +173,8 @@ func doTheThing() {
 
 	somePhotos := filterPhotos(allPhotos)
 
-	sortPhotos(somePhotos)
+	sortByViews(somePhotos)
+	sortByRate(somePhotos)
 
 	printPhotos(somePhotos)
 }
@@ -336,6 +337,7 @@ type photoInfo struct {
 	Secret    string `xml:"secret,attr",json:"secret"`
 	Views     int64  `xml:"views,attr",json:"views"`
 	fromCache bool
+	selected  bool
 	Dates     struct {
 		Posted           int64  `xml:"posted,attr",json:"posted"`
 		Taken            string `xml:"taken,attr",json:"taken"`
@@ -440,22 +442,35 @@ func filterPhotos(photos []*photoInfo) []*photoInfo {
 	return filtered
 }
 
-func sortPhotos(photos []*photoInfo) {
+func sortByRate(photos []*photoInfo) {
 	sort.SliceStable(photos, func(i, j int) bool {
 		return photos[i].rate() > photos[j].rate()
 	})
+	for i := 0; i < show && i < len(photos); i++ {
+		photos[i].selected = true
+	}
+}
+
+func sortByViews(photos []*photoInfo) {
+	sort.SliceStable(photos, func(i, j int) bool {
+		return photos[i].Views > photos[j].Views
+	})
+	for i := 0; i < show && i < len(photos); i++ {
+		photos[i].selected = true
+	}
 }
 
 func printPhotos(photos []*photoInfo) {
-	for i := 0; i < show && i < len(photos); i++ {
-		p := *photos[i]
-		fmt.Printf("%s\t% 5d\t%8.3f\t%s\n",
-			time.Unix(p.Dates.Posted, 0).String(),
-			p.Views,
-			p.rate()*secondsPerDay,
-			p.Urls.Values[0].Value)
-		if openUrl {
-			openInBrowser(p.Urls.Values[0].Value)
+	for _, p := range photos {
+		if p.selected {
+			fmt.Printf("%s\t%6d\t%8.3f\t%s\n",
+				time.Unix(p.Dates.Posted, 0).String(),
+				p.Views,
+				p.rate()*secondsPerDay,
+				p.Urls.Values[0].Value)
+			if openUrl {
+				openInBrowser(p.Urls.Values[0].Value)
+			}
 		}
 	}
 }
