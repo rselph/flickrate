@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"text/tabwriter"
 	"time"
 )
 
@@ -461,10 +462,17 @@ func sortByViews(photos []*photoInfo) {
 }
 
 func printPhotos(photos []*photoInfo) {
+	fmt.Println()
+
+	w := tabwriter.NewWriter(os.Stdout, 4, 0, 2, ' ', 0)
+	defer w.Flush()
+
+	fmt.Fprint(w, "Date\tViews\tRate\tURL\t\n")
+	fmt.Fprint(w, "-----\t-----\t-----\t-----\t\n")
 	for _, p := range photos {
 		if p.selected {
-			fmt.Printf("%s\t%6d\t%8.3f\t%s\n",
-				time.Unix(p.Dates.Posted, 0).String(),
+			fmt.Fprintf(w, "%s\t%6d\t%4.1f\t%s\t\n",
+				time.Unix(p.Dates.Posted, 0).Format("2006-01-02"),
 				p.Views,
 				p.rate()*secondsPerDay,
 				p.Urls.Values[0].Value)
