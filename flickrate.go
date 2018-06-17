@@ -471,7 +471,7 @@ func printPhotos(photos []*photoInfo) {
 	fmt.Fprint(w, "-----\t-----\t-----\t-----\t\n")
 	for _, p := range photos {
 		if p.selected {
-			fmt.Fprintf(w, "%s\t%6d\t%4.1f\t%s\t\n",
+			fmt.Fprintf(w, "%s\t%6d\t%5.1f\t%s\t\n",
 				time.Unix(p.Dates.Posted, 0).Format("2006-01-02"),
 				p.Views,
 				p.rate()*secondsPerDay,
