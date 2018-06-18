@@ -334,23 +334,24 @@ func saveCache() error {
 }
 
 type photoInfo struct {
-	Id        string `xml:"id,attr",json:"id"`
-	Secret    string `xml:"secret,attr",json:"secret"`
-	Views     int64  `xml:"views,attr",json:"views"`
+	Id        string `xml:"id,attr"`
+	Secret    string `xml:"secret,attr"`
+	Views     int64  `xml:"views,attr"`
 	fromCache bool
 	selected  bool
 	Dates     struct {
-		Posted           int64  `xml:"posted,attr",json:"posted"`
-		Taken            string `xml:"taken,attr",json:"taken"`
-		Takengranularity int    `xml:"takengranularity,attr",json:"takengranularity"`
-		LastUpdate       int64  `xml:"lastupdate,attr",json:"lastupdate"`
-	} `xml:"dates",json:"dates"`
+		Posted           int64  `xml:"posted,attr"`
+		Taken            string `xml:"taken,attr"`
+		Takengranularity int    `xml:"takengranularity,attr"`
+		LastUpdate       int64  `xml:"lastupdate,attr"`
+	} `xml:"dates"`
 	Urls struct {
 		Values []struct {
-			Type  string `xml:"type,attr",json:"type"`
-			Value string `xml:",chardata",json:"value"`
+			Type  string `xml:"type,attr"`
+			Value string `xml:",chardata"`
 		} `xml:"url",json:"url"`
-	} `xml:"urls",json:"urls"`
+	} `xml:"urls"`
+	Ptr photoPtr
 }
 
 func (info *photoInfo) age() int64 {
@@ -371,19 +372,20 @@ type getInfoResponse struct {
 
 func getDetails(photos []photoPtr) []*photoInfo {
 	infos := make([]*photoInfo, 0, len(photos))
-	jobs := make(chan string)
+	jobs := make(chan *photoPtr)
 	results := make(chan *photoInfo)
 
 	jobWg := sync.WaitGroup{}
 	for i := 0; i < workers; i++ {
 		go func() {
 			for job := range jobs {
-				q := flickrQuery{"photo_id": job}
+				q := flickrQuery{"photo_id": job.Id}
 				info := &getInfoResponse{}
 				err := q.Execute("flickr.photos.getInfo", info)
 				if err != nil {
 					log.Fatal(err)
 				}
+				info.Photo.Ptr = *job
 				results <- &info.Photo
 				jobWg.Done()
 			}
@@ -413,7 +415,7 @@ func getDetails(photos []photoPtr) []*photoInfo {
 			results <- tmp
 		} else {
 			jobWg.Add(1)
-			jobs <- photo.Id
+			jobs <- &photo
 		}
 	}
 
@@ -467,14 +469,15 @@ func printPhotos(photos []*photoInfo) {
 	w := tabwriter.NewWriter(os.Stdout, 4, 0, 2, ' ', 0)
 	defer w.Flush()
 
-	fmt.Fprint(w, "Date\tViews\tRate\tURL\t\n")
-	fmt.Fprint(w, "-----\t-----\t-----\t-----\t\n")
+	fmt.Fprint(w, "Date\tViews\tRate\tTitle\tURL\t\n")
+	fmt.Fprint(w, "-----\t-----\t-----\t-----\t-----\t\n")
 	for _, p := range photos {
 		if p.selected {
-			fmt.Fprintf(w, "%s\t%6d\t%5.1f\t%s\t\n",
+			fmt.Fprintf(w, "%s\t%6d\t%5.1f\t%s\t%s\t\n",
 				time.Unix(p.Dates.Posted, 0).Format("2006-01-02"),
 				p.Views,
 				p.rate()*secondsPerDay,
+				p.Ptr.Title,
 				p.Urls.Values[0].Value)
 			if openUrl {
 				openInBrowser(p.Urls.Values[0].Value)
