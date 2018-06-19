@@ -477,7 +477,7 @@ func printPhotos(photos []*photoInfo) {
 				time.Unix(p.Dates.Posted, 0).Format("2006-01-02"),
 				p.Views,
 				p.rate()*secondsPerDay,
-				p.Ptr.Title,
+				Contract(p.Ptr.Title, 40, 8),
 				p.Urls.Values[0].Value)
 			if openUrl {
 				openInBrowser(p.Urls.Values[0].Value)
