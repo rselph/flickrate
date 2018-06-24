@@ -25,6 +25,7 @@ const (
 	cacheFile     = ".flickrate_cache"
 	restEndpoint  = "https://api.flickr.com/services/rest/"
 	secondsPerDay = 60 * 60 * 24
+	staleTime     = time.Hour
 )
 
 var (
@@ -223,11 +224,11 @@ func getUserId() string {
 
 type getPhotosResponse struct {
 	Photos struct {
-		Page      int        `xml:"page,attr"`
-		Pages     int        `xml:"pages,attr"`
-		PerPage   int        `xml:"perpage,attr"`
-		Total     int        `xml:"total,attr"`
-		PhotoList []photoPtr `xml:"photo"`
+		Page      int         `xml:"page,attr"`
+		Pages     int         `xml:"pages,attr"`
+		PerPage   int         `xml:"perpage,attr"`
+		Total     int         `xml:"total,attr"`
+		PhotoList []*photoPtr `xml:"photo"`
 	} `xml:"photos"`
 }
 
@@ -243,10 +244,10 @@ type photoPtr struct {
 	IsFamily int    `xml:"isfamily,attr"`
 }
 
-func getPhotos(userId string) []photoPtr {
+func getPhotos(userId string) []*photoPtr {
 	page := 1
 	pages := 1
-	allPhotos := make([]photoPtr, 0)
+	allPhotos := make([]*photoPtr, 0)
 	for page <= pages {
 		q := flickrQuery{
 			"user_id":     userId,
@@ -267,7 +268,7 @@ func getPhotos(userId string) []photoPtr {
 	return allPhotos
 }
 
-type photoCache map[string]*photoInfo
+type photoCache map[string]*photo
 
 func loadCache() {
 	cache = photoCache{}
@@ -276,7 +277,7 @@ func loadCache() {
 	}
 
 	info, err := os.Stat(cachePath)
-	if err != nil || info.ModTime().Before(time.Now().Add(-time.Hour)) {
+	if err != nil || info.ModTime().Before(time.Now().Add(-staleTime)) {
 		return
 	}
 
@@ -334,12 +335,10 @@ func saveCache() error {
 }
 
 type photoInfo struct {
-	Id        string `xml:"id,attr"`
-	Secret    string `xml:"secret,attr"`
-	Views     int64  `xml:"views,attr"`
-	fromCache bool
-	selected  bool
-	Dates     struct {
+	Id     string `xml:"id,attr"`
+	Secret string `xml:"secret,attr"`
+	Views  int64  `xml:"views,attr"`
+	Dates  struct {
 		Posted           int64  `xml:"posted,attr"`
 		Taken            string `xml:"taken,attr"`
 		Takengranularity int    `xml:"takengranularity,attr"`
@@ -351,17 +350,16 @@ type photoInfo struct {
 			Value string `xml:",chardata"`
 		} `xml:"url",json:"url"`
 	} `xml:"urls"`
-	Ptr photoPtr
 }
 
-func (info *photoInfo) age() int64 {
-	return now - info.Dates.Posted
+func (info *photo) age() int64 {
+	return now - info.Info.Dates.Posted
 }
 
-func (info *photoInfo) rate() float64 {
+func (info *photo) rate() float64 {
 	age := info.age()
 	if age != 0 {
-		return float64(info.Views) / float64(age)
+		return float64(info.Info.Views) / float64(age)
 	}
 	return 0.0
 }
@@ -370,14 +368,51 @@ type getInfoResponse struct {
 	Photo photoInfo `xml:"photo"`
 }
 
-func getDetails(photos []photoPtr) []*photoInfo {
-	infos := make([]*photoInfo, 0, len(photos))
-	jobs := make(chan *photoPtr)
-	results := make(chan *photoInfo)
+type photo struct {
+	Ptr         *photoPtr
+	Info        *photoInfo
+	selected    bool
+	LastFetched time.Time
+}
 
-	jobWg := sync.WaitGroup{}
+func getDetails(photos []*photoPtr) []*photo {
+	notCached := make([]*photoPtr, 0, len(photos))
+	results := make([]*photo, 0, len(photos))
+	for _, photo := range photos {
+		tmp, ok := cache[photo.Id]
+		if ok && tmp.LastFetched.After(time.Now().Add(-staleTime)) {
+			results = append(results, tmp)
+		} else {
+			notCached = append(notCached, photo)
+		}
+	}
+	cacheTouched = len(notCached) != 0
+
+	jobs := make(chan *photoPtr)
+	lookedUp := make(chan *photo)
+
+	go func() {
+		for _, job := range notCached {
+			jobs <- job
+		}
+		close(jobs)
+	}()
+
+	collectorWg := sync.WaitGroup{}
+	collectorWg.Add(1)
+	go func() {
+		defer collectorWg.Done()
+		for result := range lookedUp {
+			results = append(results, result)
+			cache[result.Info.Id] = result
+		}
+	}()
+
+	workerWg := sync.WaitGroup{}
 	for i := 0; i < workers; i++ {
+		workerWg.Add(1)
 		go func() {
+			defer workerWg.Done()
 			for job := range jobs {
 				q := flickrQuery{"photo_id": job.Id}
 				info := &getInfoResponse{}
@@ -385,67 +420,31 @@ func getDetails(photos []photoPtr) []*photoInfo {
 				if err != nil {
 					log.Fatal(err)
 				}
-				info.Photo.Ptr = *job
-				results <- &info.Photo
-				jobWg.Done()
+
+				p := &photo{Ptr: job, Info: &info.Photo, LastFetched: time.Now()}
+				lookedUp <- p
 			}
 		}()
 	}
 
-	resultWg := sync.WaitGroup{}
-	resultWg.Add(1)
-	go func() {
-		defer resultWg.Done()
-		i := 0
-		for info := range results {
-			infos = append(infos, info)
-			if i != 0 && i%80 == 0 {
-				fmt.Println()
-			}
-			fmt.Print(".")
-			i++
-		}
-		fmt.Println()
-	}()
+	workerWg.Wait()
+	close(lookedUp)
+	collectorWg.Wait()
 
-	for _, photo := range photos {
-		tmp, ok := cache[photo.Id]
-		if ok {
-			tmp.fromCache = true
-			results <- tmp
-		} else {
-			jobWg.Add(1)
-			jobs <- &photo
-		}
-	}
-
-	close(jobs)
-	jobWg.Wait()
-
-	close(results)
-	resultWg.Wait()
-
-	for _, info := range infos {
-		if !info.fromCache {
-			cache[info.Id] = info
-			cacheTouched = true
-		}
-	}
-
-	return infos
+	return results
 }
 
-func filterPhotos(photos []*photoInfo) []*photoInfo {
-	filtered := make([]*photoInfo, 0, len(photos))
+func filterPhotos(photos []*photo) []*photo {
+	filtered := make([]*photo, 0, len(photos))
 	for _, p := range photos {
-		if p.age()/secondsPerDay >= minDays && p.age()/secondsPerDay <= maxDays && p.Views >= minViews {
+		if p.age()/secondsPerDay >= minDays && p.age()/secondsPerDay <= maxDays && p.Info.Views >= minViews {
 			filtered = append(filtered, p)
 		}
 	}
 	return filtered
 }
 
-func sortByRate(photos []*photoInfo) {
+func sortByRate(photos []*photo) {
 	sort.SliceStable(photos, func(i, j int) bool {
 		return photos[i].rate() > photos[j].rate()
 	})
@@ -454,16 +453,16 @@ func sortByRate(photos []*photoInfo) {
 	}
 }
 
-func sortByViews(photos []*photoInfo) {
+func sortByViews(photos []*photo) {
 	sort.SliceStable(photos, func(i, j int) bool {
-		return photos[i].Views > photos[j].Views
+		return photos[i].Info.Views > photos[j].Info.Views
 	})
 	for i := 0; i < show && i < len(photos); i++ {
 		photos[i].selected = true
 	}
 }
 
-func printPhotos(photos []*photoInfo) {
+func printPhotos(photos []*photo) {
 	fmt.Println()
 
 	w := tabwriter.NewWriter(os.Stdout, 4, 0, 2, ' ', 0)
@@ -474,13 +473,13 @@ func printPhotos(photos []*photoInfo) {
 	for _, p := range photos {
 		if p.selected {
 			fmt.Fprintf(w, "%s\t%6d\t%5.1f\t%s\t%s\t\n",
-				time.Unix(p.Dates.Posted, 0).Format("2006-01-02"),
-				p.Views,
+				time.Unix(p.Info.Dates.Posted, 0).Format("2006-01-02"),
+				p.Info.Views,
 				p.rate()*secondsPerDay,
 				Contract(p.Ptr.Title, 40, 8),
-				p.Urls.Values[0].Value)
+				p.Info.Urls.Values[0].Value)
 			if openUrl {
-				openInBrowser(p.Urls.Values[0].Value)
+				openInBrowser(p.Info.Urls.Values[0].Value)
 			}
 		}
 	}
