@@ -37,6 +37,8 @@ var (
 	minDays    int64
 	maxDays    int64
 	minViews   int64
+	onlyTotal  bool
+	onlyRate   bool
 	show       int
 	openUrl    bool
 	workers    int
@@ -76,6 +78,8 @@ func main() {
 	flag.BoolVar(&noCache, "nocache", false, "fetch new data, even if cache file is recent")
 	flag.BoolVar(&openUrl, "o", false, "Open photo URLs in the browser")
 	flag.IntVar(&workers, "w", 20, "number of queries to make at a time")
+	flag.BoolVar(&onlyTotal, "total", false, "only select by total views, not by view rate")
+	flag.BoolVar(&onlyRate, "rate", false, "only select by view rate, not by total views")
 	flag.Parse()
 
 	now = time.Now().Unix()
@@ -175,8 +179,12 @@ func doTheThing() {
 
 	somePhotos := filterPhotos(allPhotos)
 
-	sortByViews(somePhotos)
-	sortByRate(somePhotos)
+	if !onlyRate {
+		sortByViews(somePhotos)
+	}
+	if !onlyTotal {
+		sortByRate(somePhotos)
+	}
 
 	printPhotos(somePhotos)
 }
