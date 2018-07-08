@@ -39,6 +39,7 @@ var (
 	minViews   int64
 	onlyTotal  bool
 	onlyRate   bool
+	onlyFaves  bool
 	show       int
 	openUrl    bool
 	workers    int
@@ -78,8 +79,9 @@ func main() {
 	flag.BoolVar(&noCache, "nocache", false, "fetch new data, even if cache file is recent")
 	flag.BoolVar(&openUrl, "o", false, "Open photo URLs in the browser")
 	flag.IntVar(&workers, "w", 20, "number of queries to make at a time")
-	flag.BoolVar(&onlyTotal, "total", false, "only select by total views, not by view rate")
-	flag.BoolVar(&onlyRate, "rate", false, "only select by view rate, not by total views")
+	flag.BoolVar(&onlyTotal, "views", false, "only select by total views")
+	flag.BoolVar(&onlyRate, "rate", false, "only select by view rate")
+	flag.BoolVar(&onlyFaves, "faves", false, "only select by total favorites")
 	flag.Parse()
 
 	now = time.Now().Unix()
@@ -179,10 +181,16 @@ func doTheThing() {
 
 	somePhotos := filterPhotos(allPhotos)
 
-	if !onlyRate {
+	switch {
+	case onlyRate:
+		sortByRate(somePhotos)
+	case onlyTotal:
 		sortByViews(somePhotos)
-	}
-	if !onlyTotal {
+	case onlyFaves:
+		sortByFaves(somePhotos)
+	default:
+		sortByViews(somePhotos)
+		sortByFaves(somePhotos)
 		sortByRate(somePhotos)
 	}
 
@@ -276,6 +284,26 @@ func getPhotos(userId string) []*photoPtr {
 	return allPhotos
 }
 
+type getFavesResponse struct {
+	Photo struct {
+		Total int64 `xml:"total,attr"`
+	} `xml:"photo"`
+}
+
+func getFavesCount(photoId string) int64 {
+	q := flickrQuery{
+		"photo_id": photoId,
+		"per_page": "1",
+	}
+	resp := &getFavesResponse{}
+	err := q.Execute("flickr.photos.getFavorites", resp)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return resp.Photo.Total
+}
+
 type photoCache map[string]*photo
 
 func loadCache() {
@@ -352,12 +380,15 @@ type photoInfo struct {
 		Takengranularity int    `xml:"takengranularity,attr"`
 		LastUpdate       int64  `xml:"lastupdate,attr"`
 	} `xml:"dates"`
+
 	Urls struct {
 		Values []struct {
 			Type  string `xml:"type,attr"`
 			Value string `xml:",chardata"`
 		} `xml:"url",json:"url"`
 	} `xml:"urls"`
+
+	TotalFaves int64
 }
 
 func (info *photo) age() int64 {
@@ -428,6 +459,7 @@ func getDetails(photos []*photoPtr) []*photo {
 				if err != nil {
 					log.Fatal(err)
 				}
+				info.Photo.TotalFaves = getFavesCount(job.Id)
 
 				p := &photo{Ptr: job, Info: &info.Photo, LastFetched: time.Now()}
 				lookedUp <- p
@@ -470,19 +502,29 @@ func sortByViews(photos []*photo) {
 	}
 }
 
+func sortByFaves(photos []*photo) {
+	sort.SliceStable(photos, func(i, j int) bool {
+		return photos[i].Info.TotalFaves > photos[j].Info.TotalFaves
+	})
+	for i := 0; i < show && i < len(photos); i++ {
+		photos[i].selected = true
+	}
+}
+
 func printPhotos(photos []*photo) {
 	fmt.Println()
 
 	w := tabwriter.NewWriter(os.Stdout, 4, 0, 2, ' ', 0)
 	defer w.Flush()
 
-	fmt.Fprint(w, "Date\tViews\tRate\tTitle\tURL\t\n")
-	fmt.Fprint(w, "-----\t-----\t-----\t-----\t-----\t\n")
+	fmt.Fprint(w, "Date\tViews\tFaves\tRate\tTitle\tURL\t\n")
+	fmt.Fprint(w, "-----\t-----\t-----\t-----\t-----\t-----\t\n")
 	for _, p := range photos {
 		if p.selected {
-			fmt.Fprintf(w, "%s\t%6d\t%5.1f\t%s\t%s\t\n",
+			fmt.Fprintf(w, "%s\t%6d\t%6d\t%5.1f\t%s\t%s\t\n",
 				time.Unix(p.Info.Dates.Posted, 0).Format("2006-01-02"),
 				p.Info.Views,
+				p.Info.TotalFaves,
 				p.rate()*secondsPerDay,
 				Contract(p.Ptr.Title, 40, 8),
 				p.Info.Urls.Values[0].Value)
