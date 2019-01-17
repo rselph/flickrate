@@ -515,12 +515,13 @@ func printPhotos(photos []*photo) {
 	fmt.Println()
 
 	w := tabwriter.NewWriter(os.Stdout, 4, 0, 2, ' ', 0)
-	defer w.Flush()
 
 	fmt.Fprint(w, "Date\tViews\tFaves\tRate\tTitle\tURL\t\n")
 	fmt.Fprint(w, "-----\t-----\t-----\t-----\t-----\t-----\t\n")
+	n := 0
 	for _, p := range photos {
 		if p.selected {
+			n++
 			fmt.Fprintf(w, "%s\t%6d\t%6d\t%5.1f\t%s\t%s\t\n",
 				time.Unix(p.Info.Dates.Posted, 0).Format("2006-01-02"),
 				p.Info.Views,
@@ -533,6 +534,8 @@ func printPhotos(photos []*photo) {
 			}
 		}
 	}
+	w.Flush()
+	fmt.Printf("Selected %d photos.\n\n", n)
 }
 
 type flickrQuery map[string]string
