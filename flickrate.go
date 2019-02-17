@@ -23,6 +23,7 @@ import (
 const (
 	configFile    = ".flickrate"
 	cacheFile     = ".flickrate_cache"
+	dbFile        = ".flickrate.db"
 	restEndpoint  = "https://api.flickr.com/services/rest/"
 	secondsPerDay = 60 * 60 * 24
 	staleTime     = time.Hour
@@ -53,6 +54,7 @@ var (
 
 	configPath string
 	cachePath  string
+	dbPath     string
 )
 
 var config struct {
@@ -93,6 +95,7 @@ func main() {
 
 	configPath = filepath.Join(usr.HomeDir, configFile)
 	cachePath = filepath.Join(usr.HomeDir, cacheFile)
+	dbPath = filepath.Join(usr.HomeDir, dbFile)
 
 	configBytes, err := ioutil.ReadFile(configPath)
 	if err == nil {
@@ -172,9 +175,14 @@ func doTheThing() {
 
 	photos := getPhotos(userId)
 
+	_, err := newDB(dbPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	loadCache()
 	allPhotos := getDetails(photos)
-	err := saveCache()
+	err = saveCache()
 	if err != nil {
 		log.Fatal(err)
 	}

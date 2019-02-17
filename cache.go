@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -42,8 +43,13 @@ SELECT count(*) from sqlite_master where type = "table" and name = "meta";
 	}
 	if metaCount == 0 {
 		// There's no meta table.  Assume blank database and initialize it.
-		c.createTables()
+		err = c.createTables()
+		if err != nil {
+			return
+		}
 	}
+
+	_, err = c.db.Exec(`UPDATE meta SET lastopen = $1;`, time.Now())
 
 	return
 }
@@ -65,7 +71,7 @@ func (c *db) createTables() (err error) {
 	_, err = tx.Exec(`
 CREATE TABLE meta
 (
-    "unique" int PRIMARY KEY DEFAULT 1,
+    unique_ordinal int PRIMARY KEY DEFAULT 1,
     lastopen timestamp,
     lastclose timestamp,
     schema_version int
@@ -83,5 +89,48 @@ insert into meta (schema_version) VALUES ($1);
 		return
 	}
 
+	_, err = tx.Exec(`
+CREATE TABLE user
+(
+  id varchar PRIMARY KEY,
+  nsid varchar,
+  name varchar
+);
+
+CREATE TABLE photo
+(
+  id varchar PRIMARY KEY,
+  owner varchar,
+  secret varchar,
+  server varchar,
+  farm varchar,
+  title varchar,
+  ispublic bool not null,
+  isfriend bool not null,
+  isfamily bool not null,
+  
+  lastfetched datetime not null
+);
+
+CREATE TABLE photoinfo
+(
+  id varchar PRIMARY KEY,
+  secret varchar,
+  views integer,
+  faves integer,
+  dateposted timestamp,
+  datetaken timestamp,
+  takengranularity int,
+  lastupdate timestamp
+);
+
+CREATE TABLE url
+(
+  id varchar,
+  type varchar,
+  value varchar,
+  PRIMARY KEY (id, type) 
+);
+`)
 	return
 }
