@@ -33,16 +33,17 @@ var (
 	apikey    string
 	apisecret string
 
-	targetName string
-	minDays    int64
-	maxDays    int64
-	minViews   int64
-	onlyTotal  bool
-	onlyRate   bool
-	onlyFaves  bool
-	show       int
-	openUrl    bool
-	workers    int
+	targetName   string
+	minDays      int64
+	maxDays      int64
+	minViews     int64
+	onlyTotal    bool
+	onlyRate     bool
+	onlyFaves    bool
+	onlyFaveRate bool
+	show         int
+	openUrl      bool
+	workers      int
 
 	verbose      bool
 	refresh      bool
@@ -82,6 +83,7 @@ func main() {
 	flag.BoolVar(&onlyTotal, "views", false, "only select by total views")
 	flag.BoolVar(&onlyRate, "rate", false, "only select by view rate")
 	flag.BoolVar(&onlyFaves, "faves", false, "only select by total favorites")
+	flag.BoolVar(&onlyFaveRate, "faverate", false, "only select by faves per view")
 	flag.Parse()
 
 	now = time.Now().Unix()
@@ -188,10 +190,13 @@ func doTheThing() {
 		sortByViews(somePhotos)
 	case onlyFaves:
 		sortByFaves(somePhotos)
+	case onlyFaveRate:
+		sortByFaveRate(somePhotos)
 	default:
 		sortByViews(somePhotos)
 		sortByFaves(somePhotos)
 		sortByRate(somePhotos)
+		sortByFaveRate(somePhotos)
 	}
 
 	printPhotos(somePhotos)
@@ -403,6 +408,14 @@ func (info *photo) rate() float64 {
 	return 0.0
 }
 
+func (info *photo) faveRate() float64 {
+	if info.Info.Views != 0 {
+		return float64(info.Info.TotalFaves) / float64(info.Info.Views)
+	}
+
+	return 0.0
+}
+
 type getInfoResponse struct {
 	Photo photoInfo `xml:"photo"`
 }
@@ -505,6 +518,15 @@ func sortByViews(photos []*photo) {
 func sortByFaves(photos []*photo) {
 	sort.SliceStable(photos, func(i, j int) bool {
 		return photos[i].Info.TotalFaves > photos[j].Info.TotalFaves
+	})
+	for i := 0; i < show && i < len(photos); i++ {
+		photos[i].selected = true
+	}
+}
+
+func sortByFaveRate(photos []*photo) {
+	sort.SliceStable(photos, func(i, j int) bool {
+		return photos[i].faveRate() > photos[j].faveRate()
 	})
 	for i := 0; i < show && i < len(photos); i++ {
 		photos[i].selected = true
