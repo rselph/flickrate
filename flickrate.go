@@ -195,8 +195,8 @@ func doTheThing() {
 	default:
 		sortByViews(somePhotos)
 		sortByFaves(somePhotos)
-		sortByRate(somePhotos)
 		sortByFaveRate(somePhotos)
+		sortByRate(somePhotos)
 	}
 
 	printPhotos(somePhotos)
