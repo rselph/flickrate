@@ -489,11 +489,14 @@ func getDetails(photos []*photoPtr) []*photo {
 
 func filterPhotos(photos []*photo) []*photo {
 	filtered := make([]*photo, 0, len(photos))
+	var total int64
 	for _, p := range photos {
+		total += p.Info.Views
 		if p.age()/secondsPerDay >= minDays && p.age()/secondsPerDay <= maxDays && p.Info.Views >= minViews {
 			filtered = append(filtered, p)
 		}
 	}
+	fmt.Println("Total Views:", total)
 	return filtered
 }
 
