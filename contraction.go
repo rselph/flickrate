@@ -16,7 +16,6 @@ func Contract(in string, total, suffix int) string {
 
 	outUnicode := inUnicode[:total-suffix-e]
 	outUnicode = append(outUnicode, elipsis)
-	outUnicode = append(outUnicode, in[i-suffix:])
+	outUnicode = append(outUnicode, inUnicode[i-suffix:]...)
 	return strings.Join(outUnicode, "")
-	//return in[:total-suffix-e] + elipsis + in[i-suffix:]
 }
