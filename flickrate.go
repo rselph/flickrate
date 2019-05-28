@@ -163,7 +163,7 @@ func writeConfig() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ioutil.WriteFile(configPath, configBytes, 0600)
+	err = ioutil.WriteFile(configPath, configBytes, 0600)
 	if err != nil {
 		log.Fatal(err)
 	}
