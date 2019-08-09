@@ -1,5 +1,7 @@
 package main
 
+//lint:file-ignore U1000 Unused struct members reflect Flickr API
+
 import (
 	"compress/gzip"
 	"encoding/json"
@@ -390,7 +392,7 @@ type photoInfo struct {
 		Values []struct {
 			Type  string `xml:"type,attr"`
 			Value string `xml:",chardata"`
-		} `xml:"url",json:"url"`
+		} `xml:"url" json:"url"`
 	} `xml:"urls"`
 
 	TotalFaves int64
@@ -555,7 +557,7 @@ func printPhotos(photos []*photo) {
 				Contract(p.Ptr.Title, 40, 8),
 				p.Info.Urls.Values[0].Value)
 			if openUrl {
-				openInBrowser(p.Info.Urls.Values[0].Value)
+				_ = openInBrowser(p.Info.Urls.Values[0].Value)
 			}
 		}
 	}

@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec Require insecure hash for Flickr API
 	"encoding/base64"
 	"fmt"
 	"io/ioutil"
@@ -173,7 +173,7 @@ func authSign(addr *url.URL, q *url.Values, k string) {
 	}
 
 	h := hmac.New(sha1.New, []byte(config.ApiSecret+"&"+k))
-	h.Write([]byte(baseString))
+	_, _ = h.Write([]byte(baseString))
 	binSig := h.Sum(nil)
 	q.Set("oauth_signature", base64.StdEncoding.EncodeToString(binSig))
 	addr.RawQuery = q.Encode()
@@ -186,8 +186,8 @@ func (oah *oauthResponseHandler) ServeHTTP(resp http.ResponseWriter, req *http.R
 		fmt.Println(req.URL.String())
 	}
 	req.Body.Close()
-	go srv.Shutdown(context.Background())
-	resp.Write([]byte("You can now close this browser window and return to flickrate."))
+	go func() { _ = srv.Shutdown(context.Background()) }()
+	_, _ = resp.Write([]byte("You can now close this browser window and return to flickrate."))
 
 	q := req.URL.Query()
 	oauthVerifierChannel <- q.Get("oauth_verifier")
@@ -201,7 +201,7 @@ func oauthCallbackListenURL() string {
 	if err != nil {
 		log.Fatal(err)
 	}
-	go srv.Serve(listen)
+	go func() { _ = srv.Serve(listen) }()
 
 	return fmt.Sprintf("http://%s/oauth", listen.Addr().String())
 }
