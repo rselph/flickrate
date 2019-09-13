@@ -392,7 +392,7 @@ type photoInfo struct {
 		Values []struct {
 			Type  string `xml:"type,attr"`
 			Value string `xml:",chardata"`
-		} `xml:"url" json:"url"`
+		} `xml:"url",json:"url"`
 	} `xml:"urls"`
 
 	TotalFaves int64
